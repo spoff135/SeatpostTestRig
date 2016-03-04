@@ -1,12 +1,14 @@
 //UBIDOTS CODE
 #include "HttpClient.h"  // if using webIDE, use this: #include "HttpClient/HttpClient.h"
-#define TOKEN "OYSl9VDEwl684lvbuL6PHXs0kWKse4"
+#define WEB_DEFLECTION_AVG "56a64dd97625425302aa9070"
+#define WEB_CYCLES "56a64dc3762542519d338aea"
 
 HttpClient http;
 // Headers currently need to be set at init, useful for API keys etc.
 http_header_t headers[] = {
     { "Content-Type", "application/json" },
-    { NULL, NULL } // NOTE: Always terminate headers will NULL
+    { "X-Auth-Token: OYSl9VDEwl684lvbuL6PHXs0kWKse4" },  // Seatpost Test Rig Token
+    { NULL, NULL } // NOTE: Always terminate headers with NULL
 };
 
 http_request_t request;
@@ -49,8 +51,7 @@ float rearDucerPosInch = 0; // value used to store position in inches from zero 
 float pullArea = 4.6019; // mcm part 6498K488
 float pushArea = 4.9087; // mcm part 6498K488
 int LCDrefreshRate = 300; //LCD refresh rate (ms)
-int dashboardRefreshRate = 25; // # of cycles per refresh
-int dashboardUpdateCount = 0;
+int dashboardRefreshRate = 20000; // dashboard refresh rate (ms)
 int maxResolution = 4095;
 
 // Define I2C addresses
@@ -814,29 +815,14 @@ int WebSetTimeout(String tStr){
 void UpdateDashboard(){
 
     if(millis()-lastDashboardUpdate > dashboardRefreshRate){
+      request.body = "[";
+      request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
+      request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
+      request.body += "]";
+      request.path = "/api/v1.6/collections/values/";
+      http.post(request, response, headers);
 
-        KillAll();
-
-    //    Particle.publish("Cycle Count",String(cycleCount));
-    //    Particle.publish("Deflection",String(deflection,3));
-        if(dashboardUpdateCount < 50){        // send count status
-            // send deflection avg
-            request.body = "{\"value\":" + String(deflectionAvg,3) + "}";
-            request.path = "/api/v1.6/variables/56a64dd97625425302aa9070/values?token="TOKEN;
-            http.post(request, response, headers);
-
-            dashboardUpdateCount++;
-        }
-        else{
-            // send cycleCount
-            request.body = "{\"value\":" + String(cycleCount) + "}";
-            request.path = "/api/v1.6/variables/56a64dc3762542519d338aea/values?token="TOKEN;
-            http.post(request, response, headers);
-
-            dashboardUpdateCount = 0;
-        }
-
-        lastDashboardUpdate = millis();
+      lastDashboardUpdate = millis();
     }
 
 }// UpdateDashboard

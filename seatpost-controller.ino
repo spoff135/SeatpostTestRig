@@ -65,7 +65,7 @@ int countsMin = 1638; //bits
 int sensorMax = 150; //psi
 int sensorMin = 0; //psi
 // Compressor limits
-int tankMin = 60; // tank pressure at which the compressor turns on
+int tankMin = 80; // tank pressure at which the compressor turns on
 int tankMax = 100; // tank pressure at which the compressor turns off
 
 // Initialize system/state variables

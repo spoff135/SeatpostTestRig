@@ -1,7 +1,14 @@
+//Define initial values
+int testMode = 1; // current mode (0=no test running,1=in-phase test,2=out-of-phase test)
+int cycleCount = 16000;
+int cycleTarget = 100000;
+int stateTimeout[3] = {500,500,500}; //time (ms) before automatic state change
+
 //UBIDOTS CODE
 #include "HttpClient.h"  // if using webIDE, use this: #include "HttpClient/HttpClient.h"
 #define WEB_DEFLECTION_AVG "56a64dd97625425302aa9070"
 #define WEB_CYCLES "56a64dc3762542519d338aea"
+#define WEB_TEST_STATUS "56dd89df7625421de36183f1"
 
 HttpClient http;
 // Headers currently need to be set at init, useful for API keys etc.
@@ -15,7 +22,7 @@ http_request_t request;
 http_response_t response;
 //UBIDOTS CODE
 
-float windowExcursionLimit = 1.075;
+float windowExcursionLimit = 1.1;
 
 int nStates = 0; // number of states in the testMode
 
@@ -65,13 +72,11 @@ int countsMin = 1638; //bits
 int sensorMax = 150; //psi
 int sensorMin = 0; //psi
 // Compressor limits
-int tankMin = 80; // tank pressure at which the compressor turns on
-int tankMax = 100; // tank pressure at which the compressor turns off
+int tankMin = 75; // tank pressure at which the compressor turns on
+int tankMax = 110; // tank pressure at which the compressor turns off
 
 // Initialize system/state variables
 int i = 0;
-int cycleCount = 0;
-int cycleTarget = 100000;
 long timeLeft = 0; // estimated time remaining to reach cycleTarget
 long lastLCDupdate = 0; //time of last LCD update
 long lastI2Cupdate = 0; // time of last I2C status check
@@ -94,12 +99,9 @@ int errorLog = 0; // total count of all errors (including non-consecutive)
 String errorMsg = "";
 int displayMode = 0; // can be mode 0, 1, or 2
 
-//Define initial values
-int testMode = 99; // current mode (0=no test running,1=in-phase test,2=out-of-phase test)
 int currentState = 0;  // current state (0=null,1 & 2 are mode-dependent)
 long stateStartTime = 0; // start time (ms) of current state
 long stateTime = 0; // elapsed time (ms) in current state
-int stateTimeout[3] = {2000,2000,2000}; //time (ms) before automatic state change
 int timeoutDelay = 0; // add-on delay for when resetError button is pressed during normal operation.
 float refPosition[3] = {0,0,0}; // position measured in state i during most recent calibration
 float refDeflection; // deflection measured during most recent calibration
@@ -192,7 +194,8 @@ void loop()
 
     // Update deflection total and check against windows
     deflection = position[2]-position[1];
-    deflectionAvg = 0.9*deflectionAvg + 0.1*deflection;
+    if(deflectionAvg==0) deflectionAvg = deflection; // if it's the first time through, set deflectionAvg = deflection
+    else deflectionAvg = 0.9*deflectionAvg + 0.1*deflection; // otherwise use running average
 
     // Check deflection against limits
     if(deflection > deflectionMax){
@@ -216,9 +219,6 @@ void loop()
         errorMsg = "S2 MAX error";
     }
     else errorCount = 0;
-
-
-
 
     // Only error out if there have been 2 consecutive errors
     if(errorCount > 1){
@@ -526,7 +526,7 @@ int PrintStatusToLCD(String origMsg){
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             WriteLineToLCD(msg,3);
 
-            msg = "D:" + String(deflection,3) + "/" + String(refDeflection,3) + "<" + String(deflectionMax,3);
+            msg = "D:" + String(deflection,3) + "/" + String(deflectionAvg,3) + "<" + String(deflectionMax,3);
             msg += "         ";
             WriteLineToLCD(msg,4);
 
@@ -813,16 +813,23 @@ int WebSetTimeout(String tStr){
 
 //------------------------------------------------------------------------
 void UpdateDashboard(){
-
     if(millis()-lastDashboardUpdate > dashboardRefreshRate){
-      request.body = "[";
-      request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
-      request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
-      request.body += "]";
-      request.path = "/api/v1.6/collections/values/";
-      http.post(request, response, headers);
-
+      if(paused){
+        request.body = "[";
+        request.body += "{ \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+        request.body += "]";
+        request.path = "/api/v1.6/collections/values/";
+        http.post(request, response, headers);
+      }
+      else{
+        request.body = "[";
+        request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
+        request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
+        request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+        request.body += "]";
+        request.path = "/api/v1.6/collections/values/";
+        http.post(request, response, headers);
+      }
       lastDashboardUpdate = millis();
     }
-
 }// UpdateDashboard

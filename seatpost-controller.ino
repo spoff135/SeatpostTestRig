@@ -1,6 +1,6 @@
 //Define initial values
 int testMode = 1; // current mode (0=no test running,1=in-phase test,2=out-of-phase test)
-int cycleCount = 16000;
+int cycleCount = 28806;
 int cycleTarget = 100000;
 int stateTimeout[3] = {500,500,500}; //time (ms) before automatic state change
 
@@ -9,6 +9,8 @@ int stateTimeout[3] = {500,500,500}; //time (ms) before automatic state change
 #define WEB_DEFLECTION_AVG "56a64dd97625425302aa9070"
 #define WEB_CYCLES "56a64dc3762542519d338aea"
 #define WEB_TEST_STATUS "56dd89df7625421de36183f1"
+#define WEB_S1_POSITION_AVG "56dde4b2762542312aab510f"
+#define WEB_S2_POSITION_AVG "56dde487762542303d6c2c9d"
 
 HttpClient http;
 // Headers currently need to be set at init, useful for API keys etc.
@@ -108,6 +110,7 @@ float refDeflection; // deflection measured during most recent calibration
 float refMin[3] = {0,0,0};
 float refMax[3] = {0,0,0};
 float position[3] = {0,0,0}; // most recent measured ducer position in state i
+float positionAvg[3] = {0,0,0}; // running average of position in state i
 float deflection; // Total deflection
 float deflectionAvg; // deflection running average
 float deflectionMax; // Total deflection limit
@@ -192,10 +195,14 @@ void loop()
         delay(1);//tbd deleteme
     }
 
-    // Update deflection total and check against windows
+    // Update deflection & position total and check against windows
     deflection = position[2]-position[1];
     if(deflectionAvg==0) deflectionAvg = deflection; // if it's the first time through, set deflectionAvg = deflection
     else deflectionAvg = 0.9*deflectionAvg + 0.1*deflection; // otherwise use running average
+    if(positionAvg[1]==0) positionAvg[1] = position[1];
+    else positionAvg[1] = 0.9*positionAvg[1] + 0.1*position[1];
+    if(positionAvg[2]==0) positionAvg[2] = position[2];
+    else positionAvg[2] = 0.9*positionAvg[2] + 0.1*position[2];
 
     // Check deflection against limits
     if(deflection > deflectionMax){
@@ -826,6 +833,8 @@ void UpdateDashboard(){
         request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
         request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
         request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+        request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(positionAvg[1],3)+" }";
+        request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(positionAvg[2],3)+" }";
         request.body += "]";
         request.path = "/api/v1.6/collections/values/";
         http.post(request, response, headers);

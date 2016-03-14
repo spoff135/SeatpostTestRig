@@ -1,8 +1,9 @@
 //Define initial values
 int testMode = 1; // current mode (0=no test running,1=in-phase test,2=out-of-phase test)
-int cycleCount = 28806;
+int cycleCount = 0;
 int cycleTarget = 100000;
-int stateTimeout[3] = {500,500,500}; //time (ms) before automatic state change
+int stateTimeout[3] = {500,500,500}; // time (ms) before automatic state change
+float windowExcursionLimit = 1.1; // multiplier used to determine allowed excursion from reference positions/deflection
 
 //UBIDOTS CODE
 #include "HttpClient.h"  // if using webIDE, use this: #include "HttpClient/HttpClient.h"
@@ -11,6 +12,7 @@ int stateTimeout[3] = {500,500,500}; //time (ms) before automatic state change
 #define WEB_TEST_STATUS "56dd89df7625421de36183f1"
 #define WEB_S1_POSITION_AVG "56dde4b2762542312aab510f"
 #define WEB_S2_POSITION_AVG "56dde487762542303d6c2c9d"
+#define WEB_ERROR_COUNT "56e6d36076254201620523d3"
 
 HttpClient http;
 // Headers currently need to be set at init, useful for API keys etc.
@@ -24,7 +26,6 @@ http_request_t request;
 http_response_t response;
 //UBIDOTS CODE
 
-float windowExcursionLimit = 1.1;
 
 int nStates = 0; // number of states in the testMode
 
@@ -96,6 +97,7 @@ bool resetButtonState = false;
 bool paused = true;
 bool errorFlag = false;
 bool webUpdateFlag = true;
+bool webDetailsFlag = false;
 int errorCount = 0; // count of consecutive errors
 int errorLog = 0; // total count of all errors (including non-consecutive)
 String errorMsg = "";
@@ -465,6 +467,7 @@ int PrintStatusToLCD(String origMsg){
             WriteLineToLCD(msg,3);
 
             msg = "Pos: " + String(rearDucerPosInch,2);
+            msg += " Win: " + String(windowExcursionLimit,2);
             msg += "         ";
             WriteLineToLCD(msg,4);
 
@@ -723,14 +726,7 @@ void PauseAll(){
 // Spark.functions always take a string as an argument and return an integer.
 
 int WebRunFunction(String command) {
-
-    if(command=="pushDown") {
-        PushDown();
-        delay(1000);
-        KillAll();
-        return 1;
-    }
-    else if(command=="calibrateWindow"){
+    if(command=="calibrateWindow"){
         calibrateWindow = true;
         return 1;
     }
@@ -741,17 +737,22 @@ int WebRunFunction(String command) {
     else if(command=="pause"){
         if(paused) paused = false;
         else paused = true;
-        return 1;
+        return paused;
     }
     else if(command=="I2C"){
         if(useI2C) useI2C = false;
         else useI2C = true;
-        return 1;
+        return useI2C;
     }
     else if(command=="web"){
         if(webUpdateFlag) webUpdateFlag = false;
         else webUpdateFlag = true;
-        return 1;
+        return webUpdateFlag;
+    }
+    else if(command=="webDetails"){
+        if(webDetailsFlag) webDetailsFlag = false;
+        else webDetailsFlag = true;
+        return webDetailsFlag;
     }
     else if(command=="testRelays") {
         testRelays = true;
@@ -792,6 +793,12 @@ int WebRunFunction(String command) {
         dashboardRefreshRate = command.toInt();
         return dashboardRefreshRate;
     }
+    else if(command.substring(0,6)=="window"){
+        command = command.substring(6);
+        int windowPerc = command.toInt();
+        windowExcursionLimit = 1 + windowPerc/100.0;
+        return windowExcursionLimit;
+    }
     else if(command=="resetError"){
         errorFlag = false;
         errorMsg = "";
@@ -802,10 +809,10 @@ int WebRunFunction(String command) {
     }
     else{
         TestMsg(command);
-        return 2;
+        return 99;
     }
 
-    return 0;
+    return -1;
 }// WebRunFunction
 
 
@@ -820,25 +827,28 @@ int WebSetTimeout(String tStr){
 
 //------------------------------------------------------------------------
 void UpdateDashboard(){
-    if(millis()-lastDashboardUpdate > dashboardRefreshRate){
-      if(paused){
-        request.body = "[";
-        request.body += "{ \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
-        request.body += "]";
-        request.path = "/api/v1.6/collections/values/";
-        http.post(request, response, headers);
+    if(paused && millis()-lastDashboardUpdate > dashboardRefreshRate*5){
+      request.body = "[";
+      request.body += "{ \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+      request.body += ", {\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
+      request.body += "]";
+      request.path = "/api/v1.6/collections/values/";
+      http.post(request, response, headers);
+      lastDashboardUpdate = millis();
       }
-      else{
-        request.body = "[";
-        request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
-        request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
-        request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+    else if(millis()-lastDashboardUpdate > dashboardRefreshRate){
+      request.body = "[";
+      request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
+      request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
+      request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+      if(webDetailsFlag){
         request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(positionAvg[1],3)+" }";
         request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(positionAvg[2],3)+" }";
-        request.body += "]";
-        request.path = "/api/v1.6/collections/values/";
-        http.post(request, response, headers);
+        request.body += ", { \"variable\":\""WEB_ERROR_COUNT"\", \"value\": "+String(errorLog)+" }";
       }
+      request.body += "]";
+      request.path = "/api/v1.6/collections/values/";
+      http.post(request, response, headers);
       lastDashboardUpdate = millis();
     }
 }// UpdateDashboard

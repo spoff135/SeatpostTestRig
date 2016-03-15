@@ -1,9 +1,9 @@
 //Define initial values
 int testMode = 1; // current mode (0=no test running,1=in-phase test,2=out-of-phase test)
-int cycleCount = 0;
+int cycleCount = 1759;
 int cycleTarget = 100000;
 int stateTimeout[3] = {500,500,500}; // time (ms) before automatic state change
-float windowExcursionLimit = 1.1; // multiplier used to determine allowed excursion from reference positions/deflection
+float windowExcursionLimit = 1.10; // multiplier used to determine allowed excursion from reference positions/deflection
 
 //UBIDOTS CODE
 #include "HttpClient.h"  // if using webIDE, use this: #include "HttpClient/HttpClient.h"
@@ -61,7 +61,7 @@ float rearDucerPosInch = 0; // value used to store position in inches from zero 
 float pullArea = 4.6019; // mcm part 6498K488
 float pushArea = 4.9087; // mcm part 6498K488
 int LCDrefreshRate = 300; //LCD refresh rate (ms)
-int dashboardRefreshRate = 20000; // dashboard refresh rate (ms)
+int dashboardRefreshRate = 60000; // dashboard refresh rate (ms)
 int maxResolution = 4095;
 
 // Define I2C addresses
@@ -100,6 +100,7 @@ bool webUpdateFlag = true;
 bool webDetailsFlag = false;
 int errorCount = 0; // count of consecutive errors
 int errorLog = 0; // total count of all errors (including non-consecutive)
+int lastErrorLog = 0; // errorLog at last web update
 String errorMsg = "";
 int displayMode = 0; // can be mode 0, 1, or 2
 
@@ -424,6 +425,7 @@ void RunCalibrations(){
         }
 
         refDeflection = refPosition[2]-refPosition[1];
+        deflectionAvg = refDeflection; // reset deflectionAvg
         deflectionMax = refDeflection * windowExcursionLimit;
 
         // Update deflection window based on the current mode
@@ -797,6 +799,14 @@ int WebRunFunction(String command) {
         command = command.substring(6);
         int windowPerc = command.toInt();
         windowExcursionLimit = 1 + windowPerc/100.0;
+
+        // Update deflection window based on new limit
+        deflectionMax = refDeflection * windowExcursionLimit;
+        int i;
+        for(i=1;i<=nStates;i++){
+            refMin[i] = refPosition[i]-(refDeflection*(windowExcursionLimit-1));
+            refMax[i] = refPosition[i]+(refDeflection*(windowExcursionLimit-1));
+        }
         return windowExcursionLimit;
     }
     else if(command=="resetError"){
@@ -851,4 +861,19 @@ void UpdateDashboard(){
       http.post(request, response, headers);
       lastDashboardUpdate = millis();
     }
+/*    else if(errorLog > lastErrorLog){
+      request.body = "[";
+      request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
+      request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflection,3)+" }";
+      request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
+      request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(position[1],3)+" }";
+      request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(position[2],3)+" }";
+      request.body += ", { \"variable\":\""WEB_ERROR_COUNT"\", \"value\": "+String(errorLog)+" }";
+      request.body += "]";
+      request.path = "/api/v1.6/collections/values/";
+      http.post(request, response, headers);
+      lastDashboardUpdate = millis();
+      lastErrorLog = errorLog;
+    }
+*/
 }// UpdateDashboard

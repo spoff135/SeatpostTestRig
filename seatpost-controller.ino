@@ -239,7 +239,7 @@ void loop()
 
     PrintStatusToLCD("Run");
 
-    if(webUpdateFlag) UpdateDashboard();
+    UpdateDashboard();
 
     if(paused || pauseButtonState){
         PauseAll();
@@ -837,6 +837,8 @@ int WebSetTimeout(String tStr){
 
 //------------------------------------------------------------------------
 void UpdateDashboard(){
+    if(!webUpdateFlag) return;
+
     if(paused && millis()-lastDashboardUpdate > dashboardRefreshRate*5){
       request.body = "[";
       request.body += "{ \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";

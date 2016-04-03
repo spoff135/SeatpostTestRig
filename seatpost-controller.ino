@@ -1,9 +1,11 @@
 //Define initial values
-int testMode = 1; // current mode (0=no test running,1=in-phase test,2=out-of-phase test)
-int cycleCount = 1759;
+int testMode = 2; // current mode (0=no test running,1=ISO 4210 test,2=CEN 14781 test)
+int cycleCount = 0;
 int cycleTarget = 100000;
-int stateTimeout[3] = {500,500,500}; // time (ms) before automatic state change
+int stateTimeout[5] = {750,750,750,750,750}; // time (ms) before automatic state change
 float windowExcursionLimit = 1.10; // multiplier used to determine allowed excursion from reference positions/deflection
+bool webUpdateFlag = false;
+bool webDetailsFlag = false;
 
 //UBIDOTS CODE
 #include "HttpClient.h"  // if using webIDE, use this: #include "HttpClient/HttpClient.h"
@@ -32,20 +34,22 @@ int nStates = 0; // number of states in the testMode
 // Define digital input pins
 int pausePin = D2; //
 int displayTogglePin = D3; // toggle switch for display
-int displayTogglePin2 = D6;
 int errorResetPin = D5;
 
 // Define digital output pins
-int relayPin = D4; // relay 1
+int rearRelayPin = D4; // relay for rear cylinder solenoid
+int frontRelayPin = D6; // relay for front cylinder solenoid
 int compressorRelayPin = D7; // pin for compressor on/off relay
 
 // Define analog pins
 int pressurePosPin = A4; //analog pin associated with pressure sensor Vout+
 int pressureNegPin = A5; //analog pin associated with pressure sensor Vout-
-int rearDucerPin = A0; //analog pin associated with the left transducer
+int rearDucerPin = A0; //analog pin associated with the rear transducer
+int frontDucerPin = A1; // analog pin associated with the front transducer
 
 // Initialize measured values
 int rearDucerPosBits = 0; // value used to store voltage in bits
+int frontDucerPosBits = 0; // value used to store voltage in bits
 int pressurePos = 0; // value used to store pressure sensor Vout+
 int pressureNeg = 0; // value used to store pressure sensor Vout-
 
@@ -56,6 +60,7 @@ float tankPressurePSI = 80; // value used to store tank pressure in PSI
 float pressurePSI = 0; // value used to store pressure in PSI
 float measuredForce = 0; // = pressurePSI * area in^2
 float rearDucerPosInch = 0; // value used to store position in inches from zero position
+float frontDucerPosInch = 0; // value used to store position in inches from zero position
 
 // Define system hardware constants
 float pullArea = 4.6019; // mcm part 6498K488
@@ -96,8 +101,6 @@ bool pauseButtonState = false;
 bool resetButtonState = false;
 bool paused = true;
 bool errorFlag = false;
-bool webUpdateFlag = true;
-bool webDetailsFlag = false;
 int errorCount = 0; // count of consecutive errors
 int errorLog = 0; // total count of all errors (including non-consecutive)
 int lastErrorLog = 0; // errorLog at last web update
@@ -108,12 +111,12 @@ int currentState = 0;  // current state (0=null,1 & 2 are mode-dependent)
 long stateStartTime = 0; // start time (ms) of current state
 long stateTime = 0; // elapsed time (ms) in current state
 int timeoutDelay = 0; // add-on delay for when resetError button is pressed during normal operation.
-float refPosition[3] = {0,0,0}; // position measured in state i during most recent calibration
+float refPosition[5] = {0,0,0,0,0}; // position measured in state i during most recent calibration
 float refDeflection; // deflection measured during most recent calibration
-float refMin[3] = {0,0,0};
-float refMax[3] = {0,0,0};
-float position[3] = {0,0,0}; // most recent measured ducer position in state i
-float positionAvg[3] = {0,0,0}; // running average of position in state i
+float refMin[5] = {0,0,0,0,0};
+float refMax[5] = {0,0,0,0,0};
+float position[5] = {0,0,0,0,0}; // most recent measured ducer position in state i
+float positionAvg[5] = {0,0,0,0,0}; // running average of position in state i
 float deflection; // Total deflection
 float deflectionAvg; // deflection running average
 float deflectionMax; // Total deflection limit
@@ -138,9 +141,9 @@ void setup()
 
     // Configure digital pins as input or output
     pinMode(compressorRelayPin, OUTPUT);
-    pinMode(relayPin, OUTPUT);
+    pinMode(frontRelayPin, OUTPUT);
+    pinMode(rearRelayPin, OUTPUT);
     pinMode(displayTogglePin, INPUT);
-    pinMode(displayTogglePin2, INPUT);
     pinMode(pausePin, INPUT);
     pinMode(errorResetPin, INPUT);
 
@@ -171,7 +174,7 @@ void loop()
     RunCalibrations();// runs functions enabled through webhooks
 
     bool stateChange = false;
-    currentState = 1; // start in state 1.
+    currentState = 1; // start in state 1.  state 0 is always an off state (not expected to be used)
     SetState(currentState);
 
     if(cycleCount>=cycleTarget) paused=true; //pause test if cycleTarget is reached
@@ -205,7 +208,11 @@ void loop()
     if(positionAvg[1]==0) positionAvg[1] = position[1];
     else positionAvg[1] = 0.9*positionAvg[1] + 0.1*position[1];
     if(positionAvg[2]==0) positionAvg[2] = position[2];
-    else positionAvg[2] = 0.9*positionAvg[2] + 0.1*position[2];
+    else positionAvg[3] = 0.9*positionAvg[3] + 0.1*position[3];
+    if(positionAvg[3]==0) positionAvg[3] = position[3];
+    else positionAvg[4] = 0.9*positionAvg[4] + 0.1*position[4];
+    if(positionAvg[4]==0) positionAvg[4] = position[4];
+    else positionAvg[4] = 0.9*positionAvg[4] + 0.1*position[4];
 
     // Check deflection against limits
     if(deflection > deflectionMax){
@@ -272,16 +279,32 @@ bool CheckStateConditions(int currentState){
 
 //------------------------------------------------------------------------
 void SetState(int currentState){
-    if(testMode==1){ // ISO test stage 1
+    if(testMode==1){ // ISO 4210 test stage 1
         switch (currentState) {
         case 1:
             KillAll();
             break;
         case 2:
-            PushDown();
+            PushRear();
             cycleCount++;
             break;
         }
+    }
+    else if(testMode==2){ // CEN 14781 test stage 1
+      switch (currentState) {
+        case 1:
+          KillAll();
+          break;
+        case 2:
+          PushRear();
+          break;
+        case 3:
+          KillAll();
+          break;
+        case 4:
+          PushFront();
+          break;
+      }
     }
     else {
         KillAll();
@@ -294,20 +317,25 @@ void SetMode(int testMode){
     switch (testMode)
     {
     case 0:
-        testMode = 0;
-        nStates = 0;
-        break;
+      testMode = 0;
+      nStates = 0;
+      break;
 
     case 1:  // ISO test stage 1
-        testMode = 1;
-        nStates = 2;
-        break;
+      testMode = 1;
+      nStates = 2;
+      break;
+
+    case 2:  // CEN 14781 stage 1
+      testMode = 2;
+      nStates = 4;
+      break;
 
     default:
-        testMode = 0;
-        nStates = 0;
-        KillAll();
-        break;
+      testMode = 0;
+      nStates = 0;
+      KillAll();
+      break;
     }
 
     calibrateWindow = true;
@@ -389,18 +417,20 @@ void ReadInputPins(){
 
     // Read transducer (position) pins
     rearDucerPosBits = analogRead(rearDucerPin);
+    frontDucerPosBits = analogRead(frontDucerPin);
 
     rearDucerPosInch = rearDucerPosBits * 0.00144177; // based on 150mm ducer/4096 bits = .00144177"/bit
+    frontDucerPosInch = frontDucerPosBits * 0.00144177; // based on 150mm ducer/4096 bits = .00144177"/bit
 
     // Read Digital Inputs
-    displayMode = digitalRead(displayTogglePin) + 2*digitalRead(displayTogglePin2);
     pauseButtonState = digitalRead(pausePin);
     resetButtonState = digitalRead(errorResetPin);
+    displayMode = digitalRead(displayTogglePin) + 2*resetButtonState;
     if(resetButtonState) timeoutDelay = 700;
     else timeoutDelay = 0;
 
     // update timeLeft
-    timeLeft =  ( (cycleTarget-cycleCount) * (stateTimeout[currentState]+stateTimeout[currentState])/2.0 * nStates ) / 60000.0;
+    timeLeft =  ( (cycleTarget-cycleCount) * (stateTimeout[1]+stateTimeout[2])/2.0 * nStates ) / 60000.0;
 }// ReadInputPins
 
 
@@ -593,14 +623,18 @@ void PrintDiagnostic(String stateStr){
 
 //------------------------------------------------------------------------
 void TestRelays(){
-    digitalWrite(relayPin,HIGH);
-    delay(500);
-    digitalWrite(relayPin,LOW);
-    delay(500);
+  digitalWrite(frontRelayPin,HIGH);
+  delay(500);
+  digitalWrite(frontRelayPin,LOW);
+  delay(500);
+  digitalWrite(rearRelayPin,HIGH);
+  delay(500);
+  digitalWrite(rearRelayPin,LOW);
+  delay(500);
 
-    KillAll();
+  KillAll();
 
-    testRelays = false;
+  testRelays = false;
 }// TestRelays
 
 
@@ -676,17 +710,27 @@ int CheckI2C(int address){
     else return 0;
 }// CheckI2C
 
-
 //------------------------------------------------------------------------
-void PushDown(){
-    digitalWrite(relayPin,HIGH);
-}// PushDown
+// Series of functions for controlling cylinders
+void PushRear(){
+    digitalWrite(rearRelayPin,HIGH);
+}
+void PushFront(){
+    digitalWrite(frontRelayPin,HIGH);
+}
+void KillRear(){
+    digitalWrite(rearRelayPin,LOW);
+}
+void KillFront(){
+    digitalWrite(frontRelayPin,LOW);
+}
 
 
 //------------------------------------------------------------------------
 // Turns off all relays & turns pressure to minimum
 void KillAll(){
-    digitalWrite(relayPin,LOW);
+  digitalWrite(rearRelayPin,LOW);
+  digitalWrite(frontRelayPin,LOW);
 }// KillAll
 
 
@@ -831,6 +875,8 @@ int WebSetTimeout(String tStr){
     stateTimeout[0] = tStr.toInt();
     stateTimeout[1] = tStr.toInt();
     stateTimeout[2] = tStr.toInt();
+    stateTimeout[3] = tStr.toInt();
+    stateTimeout[4] = tStr.toInt();
     return stateTimeout[0];
 }// WebSetTimeout
 
@@ -839,7 +885,9 @@ int WebSetTimeout(String tStr){
 void UpdateDashboard(){
     if(!webUpdateFlag) return;
 
-    if(paused && millis()-lastDashboardUpdate > dashboardRefreshRate*5){
+    int elapsedTime = millis()-lastDashboardUpdate;
+
+    if(paused && elapsedTime > dashboardRefreshRate*5){
       request.body = "[";
       request.body += "{ \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
       request.body += ", {\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
@@ -848,12 +896,13 @@ void UpdateDashboard(){
       http.post(request, response, headers);
       lastDashboardUpdate = millis();
       }
-    else if(millis()-lastDashboardUpdate > dashboardRefreshRate){
+    else if(elapsedTime > dashboardRefreshRate){
       request.body = "[";
       request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
       request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflectionAvg,3)+" }";
       request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
-      if(webDetailsFlag){
+      if(webDetailsFlag || errorLog > lastErrorLog){ // update details if there was an error, or if the webDetails flag is on
+        lastErrorLog = errorLog;
         request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(positionAvg[1],3)+" }";
         request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(positionAvg[2],3)+" }";
         request.body += ", { \"variable\":\""WEB_ERROR_COUNT"\", \"value\": "+String(errorLog)+" }";

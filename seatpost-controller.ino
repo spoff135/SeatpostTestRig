@@ -1,7 +1,7 @@
 //Define initial values
-String version = "4.3.9"; // version number (month.day.rev)
+String version = "4.6.1"; // version number (month.day.rev)
 int testMode = 2; // current mode (0=no test running,1=ISO 4210 test,2=CEN 14781 test)
-int cycleCount = 1680;
+int cycleCount = 67333;
 int cycleTarget = 100000;
 int stateTimeout[5] = {750,750,750,750,750}; // time (ms) before automatic state change
 float windowExcursionLimit = 1.13; // multiplier used to determine allowed excursion from reference positions/deflection
@@ -44,8 +44,8 @@ int compressorRelayPin = D7; // pin for compressor on/off relay
 // Define analog pins
 int pressurePosPin = A4; //analog pin associated with pressure sensor Vout+
 int pressureNegPin = A5; //analog pin associated with pressure sensor Vout-
-int rearDucerPin = A0; //analog pin associated with the rear transducer
-int frontDucerPin = A1; // analog pin associated with the front transducer
+int rearDucerPin = A1; //analog pin associated with the rear transducer
+int frontDucerPin = A0; // analog pin associated with the front transducer
 
 // Initialize measured values
 int rearDucerPosBits = 0; // value used to store voltage in bits
@@ -223,17 +223,17 @@ void loop()
     if(rearPosAvg[1]==0) rearPosAvg[1] = rearPos[1];
     else rearPosAvg[1] = 0.9*rearPosAvg[1] + 0.1*rearPos[1];
     if(rearPosAvg[2]==0) rearPosAvg[2] = rearPos[2];
-    else rearPosAvg[3] = 0.9*rearPosAvg[3] + 0.1*rearPos[3];
+    else rearPosAvg[2] = 0.9*rearPosAvg[2] + 0.1*rearPos[2];
     if(rearPosAvg[3]==0) rearPosAvg[3] = rearPos[3];
-    else rearPosAvg[4] = 0.9*rearPosAvg[4] + 0.1*rearPos[4];
+    else rearPosAvg[3] = 0.9*rearPosAvg[3] + 0.1*rearPos[3];
     if(rearPosAvg[4]==0) rearPosAvg[4] = rearPos[4];
     else rearPosAvg[4] = 0.9*rearPosAvg[4] + 0.1*rearPos[4];
     if(frontPosAvg[1]==0) frontPosAvg[1] = frontPos[1];
     else frontPosAvg[1] = 0.9*frontPosAvg[1] + 0.1*frontPos[1];
     if(frontPosAvg[2]==0) frontPosAvg[2] = frontPos[2];
-    else frontPosAvg[3] = 0.9*frontPosAvg[3] + 0.1*frontPos[3];
+    else frontPosAvg[2] = 0.9*frontPosAvg[2] + 0.1*frontPos[2];
     if(frontPosAvg[3]==0) frontPosAvg[3] = frontPos[3];
-    else frontPosAvg[4] = 0.9*frontPosAvg[4] + 0.1*frontPos[4];
+    else frontPosAvg[3] = 0.9*frontPosAvg[3] + 0.1*frontPos[3];
     if(frontPosAvg[4]==0) frontPosAvg[4] = frontPos[4];
     else frontPosAvg[4] = 0.9*frontPosAvg[4] + 0.1*frontPos[4];
 

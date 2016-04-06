@@ -1,10 +1,11 @@
 //Define initial values
+String version = "4.3.9"; // version number (month.day.rev)
 int testMode = 2; // current mode (0=no test running,1=ISO 4210 test,2=CEN 14781 test)
-int cycleCount = 0;
+int cycleCount = 1680;
 int cycleTarget = 100000;
 int stateTimeout[5] = {750,750,750,750,750}; // time (ms) before automatic state change
-float windowExcursionLimit = 1.10; // multiplier used to determine allowed excursion from reference positions/deflection
-bool webUpdateFlag = false;
+float windowExcursionLimit = 1.13; // multiplier used to determine allowed excursion from reference positions/deflection
+bool webUpdateFlag = true;
 bool webDetailsFlag = false;
 
 //UBIDOTS CODE
@@ -27,7 +28,6 @@ http_header_t headers[] = {
 http_request_t request;
 http_response_t response;
 //UBIDOTS CODE
-
 
 int nStates = 0; // number of states in the testMode
 
@@ -111,12 +111,21 @@ int currentState = 0;  // current state (0=null,1 & 2 are mode-dependent)
 long stateStartTime = 0; // start time (ms) of current state
 long stateTime = 0; // elapsed time (ms) in current state
 int timeoutDelay = 0; // add-on delay for when resetError button is pressed during normal operation.
-float refPosition[5] = {0,0,0,0,0}; // position measured in state i during most recent calibration
-float refDeflection; // deflection measured during most recent calibration
-float refMin[5] = {0,0,0,0,0};
-float refMax[5] = {0,0,0,0,0};
-float position[5] = {0,0,0,0,0}; // most recent measured ducer position in state i
-float positionAvg[5] = {0,0,0,0,0}; // running average of position in state i
+float period = 0; // Sum of all timeout states used in the current mode
+float refRearPos[5] = {0,0,0,0,0}; // position measured in state i during most recent calibration
+float refFrontPos[5] = {0,0,0,0,0}; // position measured in state i during most recent calibration
+float refRearDeflection; // deflection measured during most recent calibration
+float refFrontDeflection; // deflection measured during most recent calibration
+float refRearMin[5] = {0,0,0,0,0};
+float refFrontMin[5] = {0,0,0,0,0};
+float refRearMax[5] = {0,0,0,0,0};
+float refFrontMax[5] = {0,0,0,0,0};
+float rearPos[5] = {0,0,0,0,0}; // most recent measured ducer position in state i
+float frontPos[5] = {0,0,0,0,0}; // most recent measured ducer position in state i
+float rearPosAvg[5] = {0,0,0,0,0}; // running average of position in state i
+float frontPosAvg[5] = {0,0,0,0,0}; // running average of position in state i
+float rearDeflection; // rear deflection
+float frontDeflection; // front deflection
 float deflection; // Total deflection
 float deflectionAvg; // deflection running average
 float deflectionMax; // Total deflection limit
@@ -165,6 +174,9 @@ void setup()
     request.hostname = "things.ubidots.com";
     request.port = 80;
 
+    if(testMode==2){ // tbd deleteme
+      WebSetTimeout("600");
+    }
 }// Setup
 
 
@@ -185,7 +197,8 @@ void loop()
         if(stateChange){
 
             // Before changing state, update position
-            position[currentState] = rearDucerPosInch;
+            rearPos[currentState] = rearDucerPosInch;
+            frontPos[currentState] = frontDucerPosInch;
 
             if(!paused){
                 currentState = currentState+1;
@@ -202,36 +215,46 @@ void loop()
     }
 
     // Update deflection & position total and check against windows
-    deflection = position[2]-position[1];
+    rearDeflection = rearPos[2]-rearPos[1];
+    frontDeflection = frontPos[4]-frontPos[3];
+    deflection = rearDeflection + frontDeflection;
     if(deflectionAvg==0) deflectionAvg = deflection; // if it's the first time through, set deflectionAvg = deflection
     else deflectionAvg = 0.9*deflectionAvg + 0.1*deflection; // otherwise use running average
-    if(positionAvg[1]==0) positionAvg[1] = position[1];
-    else positionAvg[1] = 0.9*positionAvg[1] + 0.1*position[1];
-    if(positionAvg[2]==0) positionAvg[2] = position[2];
-    else positionAvg[3] = 0.9*positionAvg[3] + 0.1*position[3];
-    if(positionAvg[3]==0) positionAvg[3] = position[3];
-    else positionAvg[4] = 0.9*positionAvg[4] + 0.1*position[4];
-    if(positionAvg[4]==0) positionAvg[4] = position[4];
-    else positionAvg[4] = 0.9*positionAvg[4] + 0.1*position[4];
+    if(rearPosAvg[1]==0) rearPosAvg[1] = rearPos[1];
+    else rearPosAvg[1] = 0.9*rearPosAvg[1] + 0.1*rearPos[1];
+    if(rearPosAvg[2]==0) rearPosAvg[2] = rearPos[2];
+    else rearPosAvg[3] = 0.9*rearPosAvg[3] + 0.1*rearPos[3];
+    if(rearPosAvg[3]==0) rearPosAvg[3] = rearPos[3];
+    else rearPosAvg[4] = 0.9*rearPosAvg[4] + 0.1*rearPos[4];
+    if(rearPosAvg[4]==0) rearPosAvg[4] = rearPos[4];
+    else rearPosAvg[4] = 0.9*rearPosAvg[4] + 0.1*rearPos[4];
+    if(frontPosAvg[1]==0) frontPosAvg[1] = frontPos[1];
+    else frontPosAvg[1] = 0.9*frontPosAvg[1] + 0.1*frontPos[1];
+    if(frontPosAvg[2]==0) frontPosAvg[2] = frontPos[2];
+    else frontPosAvg[3] = 0.9*frontPosAvg[3] + 0.1*frontPos[3];
+    if(frontPosAvg[3]==0) frontPosAvg[3] = frontPos[3];
+    else frontPosAvg[4] = 0.9*frontPosAvg[4] + 0.1*frontPos[4];
+    if(frontPosAvg[4]==0) frontPosAvg[4] = frontPos[4];
+    else frontPosAvg[4] = 0.9*frontPosAvg[4] + 0.1*frontPos[4];
 
     // Check deflection against limits
     if(deflection > deflectionMax){
         errorCount++;
         errorMsg = "Total defl error";
     }
-    else if(position[1] < refMin[1]){
+    else if(rearPos[1] < refRearMin[1]){
         errorCount++;
         errorMsg = "S1 MIN error";
     }
-    else if(position[1] > refMax[1]){
+    else if(rearPos[1] > refRearMax[1]){
         errorCount++;
         errorMsg = "S1 MAX error";
     }
-    else if(position[2] < refMin[2]){
+    else if(rearPos[2] < refRearMin[2]){
         errorCount++;
         errorMsg = "S2 MIN error";
     }
-    else if(position[2] > refMax[2]){
+    else if(rearPos[2] > refRearMax[2]){
         errorCount++;
         errorMsg = "S2 MAX error";
     }
@@ -258,7 +281,7 @@ void loop()
 //------------------------------------------------------------------------
 bool CheckStateConditions(int currentState){
 
-    switch (currentState) {
+    switch (currentState) { // these cases are all identical now, but could imagine state-specific conditions for changing state
     case 1:
         if(stateTime > stateTimeout[currentState] + timeoutDelay) return true;
         break;
@@ -303,6 +326,7 @@ void SetState(int currentState){
           break;
         case 4:
           PushFront();
+          cycleCount++;
           break;
       }
     }
@@ -430,7 +454,13 @@ void ReadInputPins(){
     else timeoutDelay = 0;
 
     // update timeLeft
-    timeLeft =  ( (cycleTarget-cycleCount) * (stateTimeout[1]+stateTimeout[2])/2.0 * nStates ) / 60000.0;
+    if(testMode==2){
+      period = stateTimeout[1]+stateTimeout[2]+stateTimeout[3]+stateTimeout[4];
+    }
+    else {
+      period = stateTimeout[1]+stateTimeout[2];
+    }
+    timeLeft =  ( (cycleTarget-cycleCount) * period )/ 60000.0;
 }// ReadInputPins
 
 
@@ -451,17 +481,22 @@ void RunCalibrations(){
             SetState(i);
             delay(stateTimeout[i]);
             ReadInputPins();
-            refPosition[i] = rearDucerPosInch;
+            refRearPos[i] = rearDucerPosInch;
+            refFrontPos[i] = frontDucerPosInch;
         }
 
-        refDeflection = refPosition[2]-refPosition[1];
-        deflectionAvg = refDeflection; // reset deflectionAvg
-        deflectionMax = refDeflection * windowExcursionLimit;
+        refRearDeflection = refRearPos[2]-refRearPos[1];
+        refFrontDeflection = refFrontPos[4]-refFrontPos[3];
+
+        deflectionAvg = refRearDeflection + refFrontDeflection; // reset deflectionAvg
+        deflectionMax = (refRearDeflection + refFrontDeflection) * windowExcursionLimit;
 
         // Update deflection window based on the current mode
         for(i=1;i<=nStates;i++){
-            refMin[i] = refPosition[i]-(refDeflection*(windowExcursionLimit-1));
-            refMax[i] = refPosition[i]+(refDeflection*(windowExcursionLimit-1));
+            refRearMin[i] = refRearPos[i]-(refRearDeflection*(windowExcursionLimit-1));
+            refRearMax[i] = refRearPos[i]+(refRearDeflection*(windowExcursionLimit-1));
+            refFrontMin[i] = refFrontPos[i]-(refFrontDeflection*(windowExcursionLimit-1));
+            refFrontMax[i] = refFrontPos[i]+(refFrontDeflection*(windowExcursionLimit-1));
         }
 
         calibrateWindow = false;
@@ -480,51 +515,46 @@ int PrintStatusToLCD(String origMsg){
 
     if(millis()-lastLCDupdate > LCDrefreshRate){
         if(displayMode==0){
-            msg = "M" + String(testMode);
-            msg += " #" + String(cycleCount) + "/" + String(cycleTarget);
+            msg = "#" + String(cycleCount) + "/" + String(cycleTarget);
             msg += " " + String(timeLeft) + "min";
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             WriteLineToLCD(msg,1);
 
-            if(useI2C) msg = origMsg + " | D:" + String(dataLoggerStatus) + " S:" + String(currentState);
+            if(useI2C) msg = origMsg + " M:" + String(testMode) + " S:" + String(currentState);
             else msg = origMsg + " | I2C Off";
             msg += "         ";
             WriteLineToLCD(msg,2);
 
-            msg = "Tank:" + String(tankMin);
-            msg += "<" + String(tankPressurePSI,1);
-            msg += "<" + String(tankMax);
-            msg += "|" + String(compressorDutyCycle,1);
+            msg = "Defl " + String(deflection,3);
+            msg += "/" + String(deflectionMax,3);
             msg += "         ";
             WriteLineToLCD(msg,3);
 
-            msg = "Pos: " + String(rearDucerPosInch,2);
-            msg += " Win: " + String(windowExcursionLimit,2);
+            msg = "R: " + String(rearDeflection,2);
+            msg += " F: " + String(frontDeflection,2);
             msg += "         ";
             WriteLineToLCD(msg,4);
 
             lastLCDupdate = millis();
         }
         else if(displayMode==1){
-            msg = "M" + String(testMode);
-            msg += " #" + String(cycleCount) + "/" + String(cycleTarget);
+            msg = "V" + version + " M" + String(testMode);
             msg += " " + String(timeLeft) + "min";
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             WriteLineToLCD(msg,1);
 
-            msg = origMsg;
-            msg += " Fs:" + String(forceSetting,0);
-            msg += " F:" + String(measuredForce,1);
-            msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
+            msg = "Tank:" + String(tankMin);
+            msg += "<" + String(tankPressurePSI,1);
+            msg += "<" + String(tankMax);
+            msg += "|" + String(compressorDutyCycle,1);
+            msg += "         ";
             WriteLineToLCD(msg,2);
 
-            msg = "" + String(stateTimeout[currentState]);
-            msg += " Pres: " + String(pressurePSI,1);
-            msg += "         ";
+            msg = "P: " + String(period,0);
+            msg += "ms         ";
             WriteLineToLCD(msg,3);
 
-            msg = "Defl " + String(deflection,3);
-            msg += "/" + String(deflectionMax,3);
+            msg = "Win: " + String(windowExcursionLimit,2);
             msg += "         ";
             WriteLineToLCD(msg,4);
 
@@ -553,18 +583,19 @@ int PrintStatusToLCD(String origMsg){
 
             lastLCDupdate = millis();
         }*/
+
 //Excursion window diagnostic
         else if(displayMode==2){
-            msg = "Pos 1:" + String(position[1],3) + " 2:" + String(position[2],3);
+            msg = "Pos 1:" + String(rearPos[1],3) + " 2:" + String(rearPos[2],3);
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             WriteLineToLCD(msg,1);
 
-            msg = "1:"+String(refMin[1],3) + "<" + String(refPosition[1],3) + "<" + String(refMax[1],3);
+            msg = "1:"+String(refRearMin[1],3) + "<" + String(refRearPos[1],3) + "<" + String(refRearMax[1],3);
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             WriteLineToLCD(msg,2);
 
-            msg = "2:"+String(refMin[2],3) + "<" + String(refPosition[2],3) + "<" + String(refMax[2],3);
+            msg = "2:"+String(refRearMin[2],3) + "<" + String(refRearPos[2],3) + "<" + String(refRearMax[2],3);
             msg += "         "; // spaces added at the end of each line (so I don't have to run ClearLCD and make the screen flash)
             WriteLineToLCD(msg,3);
 
@@ -845,11 +876,13 @@ int WebRunFunction(String command) {
         windowExcursionLimit = 1 + windowPerc/100.0;
 
         // Update deflection window based on new limit
-        deflectionMax = refDeflection * windowExcursionLimit;
+        deflectionMax = (refRearDeflection + refFrontDeflection) * windowExcursionLimit;
         int i;
         for(i=1;i<=nStates;i++){
-            refMin[i] = refPosition[i]-(refDeflection*(windowExcursionLimit-1));
-            refMax[i] = refPosition[i]+(refDeflection*(windowExcursionLimit-1));
+          refRearMin[i] = refRearPos[i]-(refRearDeflection*(windowExcursionLimit-1));
+          refRearMax[i] = refRearPos[i]+(refRearDeflection*(windowExcursionLimit-1));
+          refFrontMin[i] = refFrontPos[i]-(refFrontDeflection*(windowExcursionLimit-1));
+          refFrontMax[i] = refFrontPos[i]+(refFrontDeflection*(windowExcursionLimit-1));
         }
         return windowExcursionLimit;
     }
@@ -872,11 +905,20 @@ int WebRunFunction(String command) {
 
 //------------------------------------------------------------------------
 int WebSetTimeout(String tStr){
-    stateTimeout[0] = tStr.toInt();
-    stateTimeout[1] = tStr.toInt();
-    stateTimeout[2] = tStr.toInt();
-    stateTimeout[3] = tStr.toInt();
-    stateTimeout[4] = tStr.toInt();
+    if(testMode == 2){ // for CEN test, not all even states
+      stateTimeout[0] = tStr.toInt();
+      stateTimeout[1] = tStr.toInt()*0.4;
+      stateTimeout[2] = tStr.toInt();
+      stateTimeout[3] = tStr.toInt()*0.65;
+      stateTimeout[4] = tStr.toInt()*0.75;
+    }
+    else{
+      stateTimeout[0] = tStr.toInt();
+      stateTimeout[1] = tStr.toInt();
+      stateTimeout[2] = tStr.toInt();
+      stateTimeout[3] = tStr.toInt();
+      stateTimeout[4] = tStr.toInt();
+    }
     return stateTimeout[0];
 }// WebSetTimeout
 
@@ -903,8 +945,13 @@ void UpdateDashboard(){
       request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
       if(webDetailsFlag || errorLog > lastErrorLog){ // update details if there was an error, or if the webDetails flag is on
         lastErrorLog = errorLog;
-        request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(positionAvg[1],3)+" }";
-        request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(positionAvg[2],3)+" }";
+        if(testMode==1){
+          request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(rearPosAvg[1],3)+" }";
+        }
+        else if(testMode==2){
+          request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(frontPosAvg[4],3)+" }";
+        }
+        request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(rearPosAvg[2],3)+" }";
         request.body += ", { \"variable\":\""WEB_ERROR_COUNT"\", \"value\": "+String(errorLog)+" }";
       }
       request.body += "]";
@@ -917,8 +964,8 @@ void UpdateDashboard(){
       request.body += "{\"variable\":\""WEB_CYCLES"\", \"value\": "+String(cycleCount)+" }";
       request.body += ", { \"variable\":\""WEB_DEFLECTION_AVG"\", \"value\": "+String(deflection,3)+" }";
       request.body += ", { \"variable\":\""WEB_TEST_STATUS"\", \"value\": "+String(!paused)+" }";
-      request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(position[1],3)+" }";
-      request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(position[2],3)+" }";
+      request.body += ", { \"variable\":\""WEB_S1_POSITION_AVG"\", \"value\": "+String(rearPos[1],3)+" }";
+      request.body += ", { \"variable\":\""WEB_S2_POSITION_AVG"\", \"value\": "+String(rearPos[2],3)+" }";
       request.body += ", { \"variable\":\""WEB_ERROR_COUNT"\", \"value\": "+String(errorLog)+" }";
       request.body += "]";
       request.path = "/api/v1.6/collections/values/";

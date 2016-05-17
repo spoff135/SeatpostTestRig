@@ -1,11 +1,11 @@
 //Define initial values
-String version = "4.6.1"; // version number (month.day.rev)
-int testMode = 2; // current mode (0=no test running,1=ISO 4210 test,2=CEN 14781 test)
-int cycleCount = 67333;
+String version = "4.24.1"; // version number (month.day.rev)
+int testMode = 1; // current mode (0=no test running,1=ISO 4210 test,2=CEN 14781 test)
+int cycleCount = 0;
 int cycleTarget = 100000;
-int stateTimeout[5] = {750,750,750,750,750}; // time (ms) before automatic state change
+int stateTimeout[5] = {500,500,500,500,500}; // time (ms) before automatic state change
 float windowExcursionLimit = 1.13; // multiplier used to determine allowed excursion from reference positions/deflection
-bool webUpdateFlag = true;
+bool webUpdateFlag = false;
 bool webDetailsFlag = false;
 
 //UBIDOTS CODE
@@ -46,6 +46,9 @@ int pressurePosPin = A4; //analog pin associated with pressure sensor Vout+
 int pressureNegPin = A5; //analog pin associated with pressure sensor Vout-
 int rearDucerPin = A1; //analog pin associated with the rear transducer
 int frontDucerPin = A0; // analog pin associated with the front transducer
+
+// Define digital as analog pins
+int displayToggle2Pin = A3; // analog pin associated with display toggle #2
 
 // Initialize measured values
 int rearDucerPosBits = 0; // value used to store voltage in bits
@@ -449,7 +452,10 @@ void ReadInputPins(){
     // Read Digital Inputs
     pauseButtonState = digitalRead(pausePin);
     resetButtonState = digitalRead(errorResetPin);
-    displayMode = digitalRead(displayTogglePin) + 2*resetButtonState;
+    int displayState2 = 0;
+    if(analogRead(displayToggle2Pin) > 500) displayState2 = 1;
+    else displayState2 = 0;
+    displayMode = digitalRead(displayTogglePin) + 2*displayState2;
     if(resetButtonState) timeoutDelay = 700;
     else timeoutDelay = 0;
 
